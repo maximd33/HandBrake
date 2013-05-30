@@ -1,0 +1,54 @@
+$(eval $(call import.MODULE.defs,TEST,test,LIBHB))
+$(eval $(call import.GCC,TEST))
+
+TEST.src/   = $(SRC/)test/
+TEST.build/ = $(BUILD/)test/
+
+TEST.c   = $(wildcard $(TEST.src/)*.c)
+TEST.c.o = $(patsubst $(SRC/)%.c,$(BUILD/)%.o,$(TEST.c))
+
+TEST.exe = $(BUILD/)$(call TARGET.exe,$(HB.name)CLI)
+
+TEST.GCC.L = $(CONTRIB.build/)lib
+
+TEST.libs = $(LIBHB.a)
+
+TEST.GCC.l = \
+        a52 ass avcodec avformat avutil avresample dvdnav dvdread faac \
+        fontconfig freetype fribidi mkv mpeg2 mp3lame mp4v2 ogg \
+        samplerate swscale theoraenc theoradec vorbis vorbisenc x264 \
+        bluray xml2 bz2 z
+
+ifeq (1,$(FEATURE.fdk_aac))
+TEST.GCC.l += fdk-aac
+endif
+
+TEST.install.exe = $(DESTDIR)$(PREFIX/)bin/$(notdir $(TEST.exe))
+
+###############################################################################
+
+TEST.out += $(TEST.c.o)
+TEST.out += $(TEST.exe)
+
+BUILD.out += $(TEST.out)
+BUILD.out += $(TEST.install.exe)
+
+###############################################################################
+
+TEST.GCC.I += $(LIBHB.GCC.I)
+
+ifeq ($(BUILD.system),darwin)
+    TEST.GCC.f += IOKit CoreServices AudioToolbox
+    TEST.GCC.l += iconv
+else ifeq ($(BUILD.system),linux)
+    TEST.GCC.l += pthread dl m
+else ifeq ($(BUILD.system),solaris)
+    TEST.GCC.l += pthread nsl socket iconv
+else ifeq (1-mingw,$(BUILD.cross)-$(BUILD.system))
+ifeq ($(HAS.dlfcn),1)
+    TEST.GCC.l += dl
+endif
+    TEST.GCC.l += pthreadGC2 iconv ws2_32
+    TEST.GCC.D += PTW32_STATIC_LIB
+	TEST.GCC.args.extra.exe++ += -static
+endif

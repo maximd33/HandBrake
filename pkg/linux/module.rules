@@ -1,0 +1,134 @@
+pkg.create.deb:: $(PKG.gui.deb) $(PKG.cli.deb)
+pkg.create.rpm:: $(PKG.gui.rpm)
+pkg.create.src.deb:: $(PKG.src.deb.stamp)
+pkg.create.tar:: pkg.create $(PKG.cli.tar)
+
+#
+# CLI Tar Package
+#
+
+$(PKG.cli.tar): | $(dir $(PKG.cli.tar))
+$(PKG.cli.tar): | $(STAGE.out.cli/)
+	cd $(STAGE.out.cli/) && $(TAR.exe) cjf $(call fn.ABSOLUTE,$(PKG.cli.tar)) .
+
+
+$(STAGE.out.cli/):
+	-$(MKDIR.exe) -p $@
+	$(CP.exe) HandBrakeCLI $(STAGE.out.cli/)
+	$(call STAGE.doc,$(STAGE.out.cli/))
+
+#
+# RPM binary package rules
+#
+$(PKG.rpm.src.tar.bz2): $(STAGE.out.rpm.src/)
+	$(TAR.exe) cjf $@ -C $(STAGE.out.rpm.src/) $(PKG.basename)
+
+$(STAGE.out.rpm.src/): GNUmakefile
+#	-$(MKDIR.exe) -p $(STAGE.out.rpm.src/)$(PKG.basename)
+#	tar c --exclude build ../* | tar x -C $(STAGE.out.rpm.src/)$(PKG.basename)
+	-$(RM.exe) -rf $(STAGE.out.src/)
+	make contrib.fetch
+	svn co -r$(HB.repo.rev) $(HB.repo.url) $@/$(PKG.basename)
+	-$(MKDIR.exe) $(STAGE.out.rpm.src/)$(PKG.basename)/download
+	$(CP.exe) $(SRC/)download/*.tar.* $(STAGE.out.rpm.src/)$(PKG.basename)/download
+
+$(PKG.native.rpm.stamp): $(PKG.rpm.src.tar.bz2)
+	-$(MKDIR.exe) -p $(RPM.out/)SOURCES
+	-$(MKDIR.exe) -p $(RPM.out/)SPECS
+	-$(MKDIR.exe) -p $(RPM.out/)BUILD
+	-$(MKDIR.exe) -p $(RPM.out/)RPMS
+	-$(MKDIR.exe) -p $(RPM.out/)SRPMS
+	-$(MKDIR.exe) -p $(RPMROOT.out/)
+	echo "%define name $(HB.name)" > $(RPM.out/)SPECS/ghb.spec
+	echo "%define release 1" >> $(RPM.out/)SPECS/ghb.spec
+	echo "%define version $(HB.version)" >> $(RPM.out/)SPECS/ghb.spec
+	cat $(GTK.src/)ghb.spec >> $(RPM.out/)SPECS/ghb.spec
+	$(CP.exe) $(PKG.rpm.src.tar.bz2) $(RPM.out/)SOURCES
+	rpmbuild --define="_topdir $(PWD)/$(RPM.out)" --buildroot $(RPMROOT.out) -ba $(RPM.out/)SPECS/ghb.spec
+	$(TOUCH.exe) $(PKG.native.rpm.stamp)
+
+$(PKG.gui.rpm): | $(dir $(PKG.gui.rpm))
+$(PKG.gui.rpm): $(PKG.native.rpm.stamp)
+	$(CP.exe) $(PKG.gui.native.rpm) $(PKG.gui.rpm)
+	$(CP.exe) $(PKG.cli.native.rpm) $(PKG.cli.rpm)
+
+#
+# Debian binary package rules
+#
+$(PKG.gui.tmp.deb): | $(dir $(PKG.gui.tmp.deb))
+$(PKG.gui.tmp.deb): GNUmakefile
+	-$(RM.exe) $(SRC/)debian
+	ln -s $(PWD)/$(PKG.debian) $(SRC/)debian
+	fakeroot $(MAKE) -C $(SRC/) -f debian/rules clean
+	$(MAKE) BUILDDIR=$(PWD)/$(BUILD) CONFIGURE=configure -C $(SRC/) -f debian/rules build
+	echo $(PKG.out/)
+	fakeroot $(MAKE) FORCEVERSION="-- -v$(HB.version)" BUILDDIR=$(PWD)/$(BUILD) CONFIGURE=configure PKGDESTDIR=$(PWD)/$(PKG.out/) -C $(SRC/) -f debian/rules binary
+
+$(PKG.gui.deb): | $(dir $(PKG.gui.deb))
+$(PKG.gui.deb): $(PKG.gui.tmp.deb)
+	$(MV.exe) $(PKG.gui.tmp.deb) $(PKG.gui.deb)
+
+$(PKG.cli.deb): | $(dir $(PKG.cli.deb))
+$(PKG.cli.deb): $(PKG.gui.tmp.deb)
+	$(MV.exe) $(PKG.cli.tmp.deb) $(PKG.cli.deb)
+
+#
+# Debian source package rules
+#
+pkg.push.src.deb:: $(PKG.src.deb.stamp)
+	(cd $(STAGE.out.src/)raring && dput handbrake-snapshots handbrake_$(HB.version)ppa1~raring1_source.changes )
+	(cd $(STAGE.out.src/)quantal && dput handbrake-snapshots handbrake_$(HB.version)ppa1~quantal1_source.changes )
+	(cd $(STAGE.out.src/)precise && dput handbrake-snapshots handbrake_$(HB.version)ppa1~precise1_source.changes )
+	(cd $(STAGE.out.src/)oneiric && dput handbrake-snapshots handbrake_$(HB.version)ppa1~oneiric1_source.changes )
+
+$(PKG.src.deb.stamp): GNUmakefile
+	-$(RM.exe) -rf $(STAGE.out.src/)
+	make contrib.fetch
+	svn co -r$(HB.repo.rev) $(HB.repo.url) $(STAGE.out.src/)raring/$(PKG.deb.basename)
+	$(CP.exe) -a $(SRC/)download $(STAGE.out.src/)raring/$(PKG.deb.basename)
+	cp -a $(PWD)/$(PKG.debian) $(STAGE.out.src/)raring/$(PKG.deb.basename)
+	$(CP.exe) $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/control.raring $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/control
+	$(CP.exe) $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/rules.raring $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/rules
+	echo "handbrake ($(HB.version)ppa1~raring1) raring; urgency=low" > $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/changelog
+	echo "  * Snapshot" >> $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/changelog
+	echo "    - See timeline at http://trac.handbrake.fr/timeline" >> $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/changelog
+	echo "" >> $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/changelog
+	echo " -- John Stebbins <jstebbins.hb@gmail.com>  Sun, 11 Apr 2010 9:51:07 -0800" >> $(STAGE.out.src/)raring/$(PKG.deb.basename)/debian/changelog
+	$(TAR.exe) czf $(STAGE.out.src/)raring/$(PKG.src.deb.tar) -C $(STAGE.out.src/)raring $(PKG.deb.basename)
+	(cd $(STAGE.out.src/)raring/$(PKG.deb.basename) && debuild -S -kjstebbins.hb)
+	svn co -r$(HB.repo.rev) $(HB.repo.url) $(STAGE.out.src/)quantal/$(PKG.deb.basename)
+	$(CP.exe) -a $(SRC/)download $(STAGE.out.src/)quantal/$(PKG.deb.basename)
+	cp -a $(PWD)/$(PKG.debian) $(STAGE.out.src/)quantal/$(PKG.deb.basename)
+	$(CP.exe) $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/control.quantal $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/control
+	$(CP.exe) $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/rules.quantal $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/rules
+	echo "handbrake ($(HB.version)ppa1~quantal1) quantal; urgency=low" > $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/changelog
+	echo "  * Snapshot" >> $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/changelog
+	echo "    - See timeline at http://trac.handbrake.fr/timeline" >> $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/changelog
+	echo "" >> $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/changelog
+	echo " -- John Stebbins <jstebbins.hb@gmail.com>  Sun, 11 Apr 2010 9:51:07 -0800" >> $(STAGE.out.src/)quantal/$(PKG.deb.basename)/debian/changelog
+	$(TAR.exe) czf $(STAGE.out.src/)quantal/$(PKG.src.deb.tar) -C $(STAGE.out.src/)quantal $(PKG.deb.basename)
+	(cd $(STAGE.out.src/)quantal/$(PKG.deb.basename) && debuild -S -kjstebbins.hb)
+	svn co -r$(HB.repo.rev) $(HB.repo.url) $(STAGE.out.src/)precise/$(PKG.deb.basename)
+	$(CP.exe) -a $(SRC/)download $(STAGE.out.src/)precise/$(PKG.deb.basename)
+	cp -a $(PWD)/$(PKG.debian) $(STAGE.out.src/)precise/$(PKG.deb.basename)
+	$(CP.exe) $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/control.precise $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/control
+	$(CP.exe) $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/rules.precise $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/rules
+	echo "handbrake ($(HB.version)ppa1~precise1) precise; urgency=low" > $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/changelog
+	echo "  * Snapshot" >> $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/changelog
+	echo "    - See timeline at http://trac.handbrake.fr/timeline" >> $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/changelog
+	echo "" >> $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/changelog
+	echo " -- John Stebbins <jstebbins.hb@gmail.com>  Sun, 11 Apr 2010 9:51:07 -0800" >> $(STAGE.out.src/)precise/$(PKG.deb.basename)/debian/changelog
+	$(TAR.exe) czf $(STAGE.out.src/)precise/$(PKG.src.deb.tar) -C $(STAGE.out.src/)precise $(PKG.deb.basename)
+	(cd $(STAGE.out.src/)precise/$(PKG.deb.basename) && debuild -S -kjstebbins.hb)
+	svn co -r$(HB.repo.rev) $(HB.repo.url) $(STAGE.out.src/)oneiric/$(PKG.deb.basename)
+	$(CP.exe) -a $(SRC/)download $(STAGE.out.src/)oneiric/$(PKG.deb.basename)
+	cp -a $(PWD)/$(PKG.debian) $(STAGE.out.src/)oneiric/$(PKG.deb.basename)
+	$(CP.exe) $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/control.oneiric $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/control
+	$(CP.exe) $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/rules.oneiric $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/rules
+	echo "handbrake ($(HB.version)ppa1~oneiric1) oneiric; urgency=low" > $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/changelog
+	echo "  * Snapshot" >> $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/changelog
+	echo "    - See timeline at http://trac.handbrake.fr/timeline" >> $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/changelog
+	echo "" >> $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/changelog
+	echo " -- John Stebbins <jstebbins.hb@gmail.com>  Sun, 11 Apr 2010 9:51:07 -0800" >> $(STAGE.out.src/)oneiric/$(PKG.deb.basename)/debian/changelog
+	$(TAR.exe) czf $(STAGE.out.src/)oneiric/$(PKG.src.deb.tar) -C $(STAGE.out.src/)oneiric $(PKG.deb.basename)
+	(cd $(STAGE.out.src/)oneiric/$(PKG.deb.basename) && debuild -S -kjstebbins.hb)
